@@ -39,6 +39,15 @@ public static class WindowCapture
     private static extern bool PrintWindow(IntPtr hwnd, IntPtr hdcBlt, uint nFlags);
 
     [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool IsIconic(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+    private const int SW_RESTORE = 9;
+
+    [DllImport("user32.dll")]
     private static extern IntPtr GetWindowDC(IntPtr hWnd);
 
     [DllImport("gdi32.dll")]
@@ -89,26 +98,57 @@ public static class WindowCapture
         }
     }
 
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetClientRect(IntPtr hWnd, out RECT lpRect);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool ClientToScreen(IntPtr hWnd, ref POINT lpPoint);
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct POINT
+    {
+        public int X;
+        public int Y;
+    }
+
     public static Bitmap? CaptureWindow(IntPtr handle)
     {
         try
         {
-            if (!GetWindowRect(handle, out RECT rect))
+            if (!GetWindowRect(handle, out RECT windowRect))
             {
                 Debug.WriteLine("GetWindowRect failed");
                 return null;
             }
 
-            int width = rect.Right - rect.Left;
-            int height = rect.Bottom - rect.Top;
-
-            if (width <= 0 || height <= 0)
+            // Get client area rectangle (relative to window)
+            if (!GetClientRect(handle, out RECT clientRect))
             {
-                Debug.WriteLine($"Invalid window dimensions: {width}x{height}");
+                Debug.WriteLine("GetClientRect failed");
+                return null;
+            }
+            POINT clientTopLeft = new POINT { X = clientRect.Left, Y = clientRect.Top };
+            if (!ClientToScreen(handle, ref clientTopLeft))
+            {
+                Debug.WriteLine("ClientToScreen failed");
+                return null;
+            }
+            int clientWidth = clientRect.Right - clientRect.Left;
+            int clientHeight = clientRect.Bottom - clientRect.Top;
+
+            int windowWidth = windowRect.Right - windowRect.Left;
+            int windowHeight = windowRect.Bottom - windowRect.Top;
+
+            if (windowWidth <= 0 || windowHeight <= 0 || clientWidth <= 0 || clientHeight <= 0)
+            {
+                Debug.WriteLine($"Invalid window/client dimensions: {windowWidth}x{windowHeight}, {clientWidth}x{clientHeight}");
                 return null;
             }
 
-            var bmp = new Bitmap(width, height, PixelFormat.Format32bppArgb);
+            // Capture full window
+            var bmp = new Bitmap(windowWidth, windowHeight, PixelFormat.Format32bppArgb);
             using (Graphics gfxBmp = Graphics.FromImage(bmp))
             {
                 IntPtr hdcBitmap = gfxBmp.GetHdc();
@@ -126,7 +166,14 @@ public static class WindowCapture
                     gfxBmp.ReleaseHdc(hdcBitmap);
                 }
             }
-            return bmp;
+
+            // Crop to client area only
+            int cropX = clientTopLeft.X - windowRect.Left;
+            int cropY = clientTopLeft.Y - windowRect.Top;
+            Rectangle cropRect = new Rectangle(cropX, cropY, clientWidth, clientHeight);
+            Bitmap clientBmp = bmp.Clone(cropRect, bmp.PixelFormat);
+            bmp.Dispose();
+            return clientBmp;
         }
         catch (Exception ex)
         {
@@ -202,6 +249,14 @@ public static class WindowCapture
             {
                 Console.WriteLine($"Could not find window with title containing: {Config.TargetWindowTitle}");
                 return null;
+            }
+
+            // Restore window if minimized (iconified)
+            if (IsIconic(window))
+            {
+                ShowWindow(window, SW_RESTORE);
+                // Give Windows a moment to redraw/restack
+                System.Threading.Thread.Sleep(200);
             }
 
             using var bitmap = CaptureWindow(window);
