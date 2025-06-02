@@ -135,7 +135,7 @@ public static class WindowCapture
         }
     }
 
-    private static IntPtr FindWindowByTitle(string titlePart)
+    public static IntPtr FindWindowByTitle(string titlePart, bool exactMatch = false)
     {
         try
         {
@@ -154,11 +154,24 @@ public static class WindowCapture
                     if (GetWindowText(hWnd, buff, nChars) > 0)
                     {
                         string windowTitle = buff.ToString();
-                        if (!string.IsNullOrEmpty(windowTitle) && 
-                            windowTitle.IndexOf(titlePart, StringComparison.OrdinalIgnoreCase) >= 0)
+                        if (!string.IsNullOrEmpty(windowTitle))
                         {
-                            foundWindow = hWnd;
-                            return false; // Stop enumeration
+                            if (exactMatch)
+                            {
+                                if (string.Equals(windowTitle, titlePart, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    foundWindow = hWnd;
+                                    return false; // Stop enumeration
+                                }
+                            }
+                            else
+                            {
+                                if (windowTitle.IndexOf(titlePart, StringComparison.OrdinalIgnoreCase) >= 0)
+                                {
+                                    foundWindow = hWnd;
+                                    return false; // Stop enumeration
+                                }
+                            }
                         }
                     }
                 }
@@ -184,7 +197,7 @@ public static class WindowCapture
     {
         try
         {
-            var window = FindWindowByTitle(Config.TargetWindowTitle);
+            var window = FindWindowByTitle(Config.TargetWindowTitle, exactMatch: true);
             if (window == IntPtr.Zero)
             {
                 Console.WriteLine($"Could not find window with title containing: {Config.TargetWindowTitle}");

@@ -36,8 +36,13 @@ public static class ChatGptService
             var request = new
             {
                 model = Config.Model,
-                messages = new[]
+                messages = new object[]
                 {
+                    new
+                    {
+                        role = "system",
+                        content = "You are an OCR and translation assistant. You must try as hard as possible to extract all visible text from the provided image and translate it to the user's requested language. If you cannot extract or translate any text, you must provide a specific, actionable reason for the failure. Do not refuse without explanation."
+                    },
                     new
                     {
                         role = "user",

@@ -102,13 +102,17 @@ class Program
     {
         if (_isProcessing)
         {
-            Console.WriteLine("Already processing a request. Please wait...");
+            string msg = "Already processing a request. Please wait...";
+            Console.WriteLine(msg);
+            // No need to speak here; just return
             return;
         }
         
         _isProcessing = true;
         string captureFile = string.Empty;
 
+        // Speak initial operation status
+        await TextToSpeechService.SpeakAsync("Capturing and requesting translation...");
         try
         {
             try
@@ -123,7 +127,9 @@ class Program
                 captureFile = WindowCapture.CaptureActiveWindowToTempFile();
                 if (string.IsNullOrEmpty(captureFile))
                 {
-                    Console.WriteLine("[CAPTURE ERROR] Failed to capture window. Make sure the target window is visible.");
+                    string msg = "Capture error. Failed to capture window. Make sure the target window is visible.";
+                    Console.WriteLine("[CAPTURE ERROR] " + msg);
+                    await TextToSpeechService.SpeakAsync(msg);
                     return;
                 }
 
@@ -145,8 +151,53 @@ class Program
                 if (string.IsNullOrEmpty(activeWindowTitle) ||
                     !activeWindowTitle.Contains(Config.TargetWindowTitle, StringComparison.OrdinalIgnoreCase))
                 {
-                    Console.WriteLine($"[WINDOW CHECK] The active window does not contain '{Config.TargetWindowTitle}'. Not processing.");
-                    return;
+                    string msg = $"The active window does not contain '{Config.TargetWindowTitle}'. Searching for a matching window...";
+                    Console.WriteLine($"[WINDOW CHECK] {msg}");
+                    // Only log, do not speak here
+
+                    // Try to find the first window with the configured title
+                    IntPtr foundWindow = WindowCapture.FindWindowByTitle(Config.TargetWindowTitle, exactMatch: true);
+                    if (foundWindow == IntPtr.Zero)
+                    {
+                        string notFoundMsg = $"No window found with title containing '{Config.TargetWindowTitle}'. Aborting.";
+                        Console.WriteLine($"[WINDOW CHECK] {notFoundMsg}");
+                        await TextToSpeechService.SpeakAsync(notFoundMsg);
+                        return;
+                    }
+                    else
+                    {
+                        string foundMsg = $"Found window with title containing '{Config.TargetWindowTitle}'. Capturing that window.";
+                        Console.WriteLine($"[WINDOW CHECK] {foundMsg}");
+                        // Only log, do not speak here
+
+                        // Capture the found window instead
+                        using (var bitmap = WindowCapture.CaptureWindow(foundWindow))
+                        {
+                            if (bitmap == null)
+                            {
+                                string failMsg = "Failed to capture the found window.";
+                                Console.WriteLine($"[CAPTURE ERROR] {failMsg}");
+                                await TextToSpeechService.SpeakAsync(failMsg);
+                                return;
+                            }
+                            // Save to temp and to last_captured.png
+                            string tempFile = Path.Combine(Path.GetTempPath(), $"capture_{Guid.NewGuid()}.png");
+                            try
+                            {
+                                bitmap.Save(tempFile, System.Drawing.Imaging.ImageFormat.Png);
+                                File.Copy(tempFile, lastCapturePath, true);
+                                Console.WriteLine($"[CAPTURE] Saved fallback capture to {lastCapturePath}");
+                                captureFile = tempFile;
+                            }
+                            catch (Exception ex)
+                            {
+                                string saveFailMsg = $"Error saving fallback capture: {ex.Message}";
+                                Console.WriteLine($"[CAPTURE ERROR] {saveFailMsg}");
+                                await TextToSpeechService.SpeakAsync(saveFailMsg);
+                                return;
+                            }
+                        }
+                    }
                 }
 
                 Console.WriteLine("[TRANSLATION] Sending image to ChatGPT for OCR & translation...");
@@ -154,7 +205,9 @@ class Program
 
                 if (string.IsNullOrWhiteSpace(extractedText))
                 {
-                    Console.WriteLine("[TRANSLATION] No text was extracted from the window.");
+                    string msg = "No text was extracted from the window.";
+                    Console.WriteLine("[TRANSLATION] " + msg);
+                    await TextToSpeechService.SpeakAsync(msg);
                     return;
                 }
 
